@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:todo_app/component/date_time_picker.dart';
@@ -9,6 +10,7 @@ import 'package:todo_app/providers/tasks_provider.dart';
 import 'package:todo_app/screens/tabs/archived_tasks_screen.dart';
 import 'package:todo_app/screens/tabs/done_tasks_screen.dart';
 import 'package:todo_app/screens/tabs/tasks_screen.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -29,11 +31,50 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final formKey = GlobalKey<FormState>();
-
+  late FlutterLocalNotificationsPlugin localNotifications;
   @override
   void initState() {
     Intl.defaultLocale = 'en';
     super.initState();
+
+    var androidInitialize =
+        new AndroidInitializationSettings('@mipmap/ic_launcher');
+    var initializeSettings =
+        new InitializationSettings(android: androidInitialize);
+
+    localNotifications = new FlutterLocalNotificationsPlugin();
+    localNotifications.initialize(initializeSettings);
+  }
+
+  Future _showNotification(
+      {required id, required desc, required DateTime dateTime}) async {
+    var androidDetial = new AndroidNotificationDetails(
+        id.toString(), "Finished todo", desc,
+        importance: Importance.high);
+    var generateNotificationDetails =
+        new NotificationDetails(android: androidDetial);
+    localNotifications.zonedSchedule(
+        id,
+        "Finished todo",
+        desc,
+        tz.TZDateTime.now(tz.local)
+            .add(Duration(days: dateTime.day - DateTime.now().day))
+            .add(Duration(hours: dateTime.hour - DateTime.now().hour))
+            .add(Duration(minutes: dateTime.minute - DateTime.now().minute)),
+        generateNotificationDetails,
+        payload: id.toString(),
+        androidAllowWhileIdle: true,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.wallClockTime);
+  }
+
+  Future<void> notificationStart({
+    required lastId,
+    required DateTime dateTime,
+    required TaskModel data,
+    required BuildContext context,
+  }) async {
+    _showNotification(id: lastId, desc: data.title, dateTime: dateTime);
   }
 
   var titleController = TextEditingController();
@@ -120,79 +161,91 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : screens[context.watch<HomeProvider>().currentTab],
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (context.read<HomeProvider>().isBottomSheetShow) {
-            if (!formKey.currentState!.validate()) {
-              return;
-            }
-            formKey.currentState!.save();
-            Map<String, dynamic> data = {
-              'title': titleController.text,
-              'dateTime': dateTimeController.text.toString(),
-              'status': "new"
-            };
-            late int lastId;
+        onPressed: !context.watch<TasksProvider>().loadedTask
+            ? null
+            : () {
+                if (context.read<HomeProvider>().isBottomSheetShow) {
+                  if (!formKey.currentState!.validate()) {
+                    return;
+                  }
+                  formKey.currentState!.save();
+                  Map<String, dynamic> data = {
+                    'title': titleController.text,
+                    'dateTime': dateTimeController.text.toString(),
+                    'status': "new"
+                  };
+                  late int lastId;
 
-            context.read<TasksProvider>().insertToDB(data).then((id) {
-              lastId = id;
-              TaskModel newTask = TaskModel(lastId, data['title'],
-                  DateTime.parse(data['dateTime']), "new");
-              Navigator.of(context).pop();
-              context.read<TasksProvider>().addNewTask(newTask);
-              context.read<HomeProvider>().showHideBottomSheet();
-              print(lastId);
-              titleController.text = "";
-              dateTimeController.text = "";
-            });
-          } else {
-            scaffoldKey.currentState!
-                .showBottomSheet(
-                  (context) => Container(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          defaultFormField(
-                            context: context,
-                            controller: titleController,
-                            type: TextInputType.text,
-                            validate: (String? val) {
-                              if (val == null || val.isEmpty) {
-                                return 'Title must not be empty';
-                              }
-                              return null;
-                            },
-                            label: 'Task Title',
-                            prefix: Icons.title,
+                  context
+                      .read<TasksProvider>()
+                      .insertToDB(data)
+                      .then((id) async {
+                    lastId = id;
+                    TaskModel newTask = TaskModel(lastId, data['title'],
+                        DateTime.parse(data['dateTime']), "new");
+                    context.read<TasksProvider>().addNewTask(newTask);
+
+                    await notificationStart(
+                        lastId: lastId,
+                        dateTime: DateTime.parse(data['dateTime']),
+                        data: newTask,
+                        context: context);
+
+                    Navigator.of(context).pop();
+                    context.read<HomeProvider>().showHideBottomSheet();
+
+                    titleController.text = "";
+                    dateTimeController.text = "";
+                  });
+                } else {
+                  scaffoldKey.currentState!
+                      .showBottomSheet(
+                        (context) => Container(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Form(
+                            key: formKey,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                defaultFormField(
+                                  context: context,
+                                  controller: titleController,
+                                  type: TextInputType.text,
+                                  validate: (String? val) {
+                                    if (val == null || val.isEmpty) {
+                                      return 'Title must not be empty';
+                                    }
+                                    return null;
+                                  },
+                                  label: 'Task Title',
+                                  prefix: Icons.title,
+                                ),
+                                SizedBox(
+                                  height: 15,
+                                ),
+                                defaultDateTimePicker(
+                                    context: context,
+                                    controller: dateTimeController,
+                                    label: 'Task Date - time',
+                                    validator: (String? val) {
+                                      if (val == null || val.isEmpty) {
+                                        return 'Select Date / time';
+                                      }
+                                      return null;
+                                    }),
+                              ],
+                            ),
                           ),
-                          SizedBox(
-                            height: 15,
-                          ),
-                          defaultDateTimePicker(
-                              context: context,
-                              controller: dateTimeController,
-                              label: 'Task Date - time',
-                              validator: (String? val) {
-                                if (val == null || val.isEmpty) {
-                                  return 'Select Date / time';
-                                }
-                                return null;
-                              }),
-                        ],
-                      ),
-                    ),
-                  ),
-                  elevation: 20,
-                )
-                .closed
-                .then((_) {
-              context.read<HomeProvider>().showHideBottomSheet();
-            });
-          }
-          context.read<HomeProvider>().showHideBottomSheet();
-        },
+                        ),
+                        elevation: 20,
+                      )
+                      .closed
+                      .then((_) {
+                    context.read<HomeProvider>().showHideBottomSheet();
+                  });
+                }
+                context.read<HomeProvider>().showHideBottomSheet();
+              },
         child: context.watch<TasksProvider>().loadedTask
             ? Icon(!context.watch<HomeProvider>().isBottomSheetShow
                 ? Icons.edit
@@ -202,9 +255,11 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
       ),
       bottomNavigationBar: BottomNavigationBar(
-        onTap: (val) {
-          context.read<HomeProvider>().goNextTap(val);
-        },
+        onTap: !context.watch<TasksProvider>().loadedTask
+            ? null
+            : (val) {
+                context.read<HomeProvider>().goNextTap(val);
+              },
         currentIndex: context.watch<HomeProvider>().currentTab,
         items: [
           BottomNavigationBarItem(icon: Icon(Icons.menu), label: "Tasks"),

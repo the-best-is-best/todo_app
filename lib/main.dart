@@ -7,6 +7,9 @@ import 'package:todo_app/providers/home_provider.dart';
 import 'package:todo_app/providers/tasks_provider.dart';
 import 'package:todo_app/screens/home_screen.dart';
 import 'package:todo_app/screens/splash_screen.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:flutter_native_timezone/flutter_native_timezone.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,8 +17,17 @@ Future<void> main() async {
     [DeviceOrientation.portraitUp],
   );
   initializeDateFormatting();
+  await _configureLocalTimeZone();
+
   await DB.createDB();
+
   runApp(MyApp());
+}
+
+Future<void> _configureLocalTimeZone() async {
+  tz.initializeTimeZones();
+  final String? timeZoneName = await FlutterNativeTimezone.getLocalTimezone();
+  tz.setLocalLocation(tz.getLocation(timeZoneName!));
 }
 
 class MyApp extends StatelessWidget {

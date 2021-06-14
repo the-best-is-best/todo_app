@@ -41,7 +41,6 @@ class TasksProvider with ChangeNotifier {
   Future getDataFromDB() async {
     if (!firstLoadTask) {
       List<Map<dynamic, dynamic>> data = await DB.getDataFromDB('tasks');
-      print(data);
       getData(data);
       loadedTask = true;
       firstLoadTask = true;
@@ -53,6 +52,7 @@ class TasksProvider with ChangeNotifier {
     loadedTask = false;
     notifyListeners();
     late int lastId;
+
     return await DB.insertToDB(tableName: 'tasks', data: data).then((_) {
       lastId = tasks.length > 0 ? tasks[tasks.length - 1].id + 1 : 1;
 
@@ -94,7 +94,6 @@ class TasksProvider with ChangeNotifier {
 
     await DB.deleteData(table: 'tasks', id: id);
     var getTask = tasks.firstWhere((task) => task.id == id);
-
     if (getTask.status == "new") {
       tasksNew.removeWhere((taskId) => taskId.id == id);
     } else if (getTask.status == "done") {
@@ -105,5 +104,9 @@ class TasksProvider with ChangeNotifier {
     tasks.remove(getTask);
     loadedTask = true;
     notifyListeners();
+  }
+
+  TaskModel task(id) {
+    return tasks[id];
   }
 }
